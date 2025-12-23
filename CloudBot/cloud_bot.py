@@ -26,14 +26,18 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 BOT_EMAIL = os.environ.get("BOT_EMAIL")
 BOT_PASSWORD = os.environ.get("BOT_PASSWORD")
 
+import collections
+
 # Global Değişkenler
 bot = None
 db = None
 auth = None
+# Tekrar bildirimlerini önlemek için son 50 ID'yi tutan kuyruk
+processed_ids = collections.deque(maxlen=50)
 
 # --- BOT MANTIĞI ---
 def start_bot_logic():
-    global bot, db, auth
+    global bot, db, auth, processed_ids
     print("Bot mantığı başlatılıyor...")
 
     # 1. Kontroller
@@ -54,13 +58,43 @@ def start_bot_logic():
     # 3. Stream Handler
     def stream_handler(message):
         try:
-            # Sadece yeni veri ekleme (put/patch) ve data doluysa
-            if message['event'] in ('put', 'patch') and message['data'] is not None:
-                # İlk yükleme (path='/') değilse
-                if message['path'] != '/':
-                    new_data = message['data']
-                    if isinstance(new_data, dict):
-                        send_telegram_alert(new_data)
+            event = message.get("event")
+            path = message.get("path")
+            data = message.get("data")
+
+            # Sadece yeni veri ekleme (put) olaylarını işle
+            if event != "put" or data is None:
+                return
+
+            requests_to_process = {}
+
+            # DURUM A: Tek bir veri geldiyse (Path: /push_id)
+            if path != "/":
+                request_id = path.replace("/", "")
+                requests_to_process[request_id] = data
+            
+            # DURUM B: Kök dizin geldiyse (Path: /)
+            elif isinstance(data, dict):
+                # Başlangıçta tüm listeyi işlememek için sadece yeni eklenenleri bulmak zordur.
+                # Ancak duplicate check sayesinde eski mesajları tekrar atmayacağız.
+                requests_to_process = data
+
+            # İşlenecek Talepleri Filtrele ve Gönder
+            for req_id, req_data in requests_to_process.items():
+                if not isinstance(req_data, dict): continue
+                
+                # --- DUPLICATE CHECK ---
+                if req_id in processed_ids:
+                    # Zaten işledik, atla
+                    continue
+                
+                # Sadece 'pending' talepleri
+                if req_data.get('status') == 'pending':
+                    send_telegram_alert(req_data)
+                    # ID'yi kaydet (Otomatik olarak en eski silinir 50'yi geçince)
+                    processed_ids.append(req_id)
+                    print(f"İşlendi: {req_id}")
+
         except Exception as e:
             print(f"Stream Hatası: {e}")
 
