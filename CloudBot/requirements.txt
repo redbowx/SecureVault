@@ -1,0 +1,3 @@
+pyrebase4
+pyTelegramBotAPI
+python-dotenv
