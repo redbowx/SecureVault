@@ -1,3 +1,5 @@
 pyrebase4
 pyTelegramBotAPI
 python-dotenv
+flask
+setuptools
